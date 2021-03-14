@@ -27,13 +27,10 @@ function createScript(url) {
 }
 
 function loadApp(url, globalVar, entrypoints) {
-  // 支持远程加载子应用
   return async () => {
-    // await createScript(url + '/asset-manifest.js')
     for(let i = 0; i < entrypoints.length; i++) {
       await createScript(url + entrypoints[i])
     }
-    // 这里的return很重要，需要从这个全局对象中拿到子应用暴露出来的生命周期函数
     return window[globalVar]
   }
 }
