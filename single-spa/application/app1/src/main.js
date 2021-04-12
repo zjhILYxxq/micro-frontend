@@ -1,16 +1,17 @@
 import Vue from 'vue'
-import App from './App.vue'
 
 Vue.config.productionTip = false
 
-const appOptions = {
-  render: (h) => h(App)
-};
 
 let vueInstance;
 
 if (!window.__SINGLE_SPA__) {
-  new Vue(appOptions).$mount('#app')
+  import('./App').then(res => {
+    new Vue({
+      render: h => h(res.default)
+    }).$mount('#app')
+  })
+  
 }
 
 export function bootstrap () {
@@ -23,8 +24,12 @@ export function bootstrap () {
 export function mount (props) {
   console.log('app1 mount', props)
   return Promise.resolve().then(() => {
-    vueInstance = new Vue(appOptions)
-    vueInstance.$mount('#microApp')
+    import('./App').then(res => {
+      vueInstance = new Vue({
+        render: h => h(res.default)
+      })
+      vueInstance.$mount('#microApp')
+    })
   })
 }
 
