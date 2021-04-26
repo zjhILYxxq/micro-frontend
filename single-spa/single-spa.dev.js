@@ -214,7 +214,7 @@
   function isActive(app) {
     return app.status === MOUNTED; // 如果 app 应用的状态时 mounted 的，那么应用就是激活的
   }
-  // 判断应用是否应该被激活
+  // 判断子应用是否应该被激活
   function shouldBeActive(app) {
     try {
       // 每一个子医用会提供一个 activeWhen 函数，如果当前 url 匹配子应用，那么子应用就应该被激活
@@ -228,11 +228,11 @@
   function toName(app) {
     return app.name;
   }
-  // ？？
+  // 判断要处理的是一个应用还是一个 parcel
   function isParcel(appOrParcel) {
     return Boolean(appOrParcel.unmountThisParcel);
   }
-  // 判断对象类型： application ? parcel ?
+  // 判断对象类型： 子应用 | parcel
   function objectType(appOrParcel) {
     return isParcel(appOrParcel) ? "parcel" : "application";
   }
@@ -304,9 +304,9 @@
   function smellsLikeAPromise(promise) {
     return promise && typeof promise.then === "function" && typeof promise.catch === "function";
   }
-  // 启动子应用
+  // 启动子应用(parcel)
   function toBootstrapPromise(appOrParcel, hardFail) {
-    // 通过创建一个子任务来启动子语音
+    // 通过创建一个微任务来启动子应用(parcel)
     return Promise.resolve().then(function () {
       // 如果子应用的状态不是待启动，直接返回
       if (appOrParcel.status !== NOT_BOOTSTRAPPED) {
@@ -336,7 +336,7 @@
       return appOrParcel;
     }
   }
-  // 卸载子应用
+  // 卸载子应用(parcel)
   function toUnmountPromise(appOrParcel, hardFail) {
     // 创建一个微任务，来卸载子应用
     return Promise.resolve().then(function () {
@@ -346,7 +346,7 @@
       }
       // 将子应用的状态置为卸载中
       appOrParcel.status = UNMOUNTING;
-      // 
+      // 先把子应用内部的 parcel 卸载掉
       var unmountChildrenParcels = Object.keys(appOrParcel.parcels).map(function (parcelId) {
         return appOrParcel.parcels[parcelId].unmountThisParcel();
       });
@@ -365,7 +365,7 @@
       }).then(function () {
         return appOrParcel;
       });
-      // 卸载子应用
+      // 卸载子应用(parcel)
       function unmountAppOrParcel() {
         // We always try to unmount the appOrParcel, even if the children parcels failed to unmount.
         // 执行子应用提供的 unmount 方法
@@ -449,20 +449,23 @@
       });
     });
   }
-  // 
+  // 已挂载的 parcel 的数量
   var parcelCount = 0;
-  // 
+  // 根 pracel，如果通过 mountRootParcel 挂载 parcel， 那么 parcel 会收集到 rootParcels 中
   var rootParcels = {
+    // 收集 parcel
     parcels: {}
   }; // This is a public api, exported to users of single-spa
-  // 挂载根？？
+  // 挂载 parcel，要挂载的 parcel 会收集到 rootParcels 中
   function mountRootParcel() {
-    debugger
     return mountParcel.apply(rootParcels, arguments);
   }
+  // 挂载 parcel， moutParcel 方法会添加到子应用对象(parcel 对象中)，然后作为 props 传递给子应用实例(parcel 实例)
+  // config 是一个对象，包含 mount、unmount、update 等方法
   function mountParcel(config, customProps) {
+    // this 为子应用对象或者 rootParcels 对象
     var owningAppOrParcel = this; // Validate inputs
-
+    // config 必须是一个对象或者是一个函数
     if (!config || _typeof(config) !== "object" && typeof config !== "function") {
       throw Error(formatErrorMessage(2,  "Cannot mount parcel without a config object or config loading function"));
     }
@@ -474,29 +477,37 @@
     if (_typeof(customProps) !== "object") {
       throw Error(formatErrorMessage(4,  "Parcel ".concat(name, " has invalid customProps -- must be an object but was given ").concat(_typeof(customProps)), name, _typeof(customProps)));
     }
-
+    // 挂载 parcel 时，必须要指定要挂载的 dom 元素
     if (!customProps.domElement) {
       throw Error(formatErrorMessage(5,  "Parcel ".concat(name, " cannot be mounted without a domElement provided as a prop"), name));
     }
 
     var id = parcelCount++;
+    // 如果 config 是一个函数，表明 parcel 还需要加载
     var passedConfigLoadingFunction = typeof config === "function";
+    // parcel 加载函数
     var configLoadingFunction = passedConfigLoadingFunction ? config : function () {
       return Promise.resolve(config);
     }; // Internal representation
-
+    // 创建一个 parcel 对象
     var parcel = {
-      id: id,
-      parcels: {},
-      status: passedConfigLoadingFunction ? LOADING_SOURCE_CODE : NOT_BOOTSTRAPPED,
+      id: id, // parcel 的 id
+      parcels: {}, // 收集 child parcel
+      // 如果 config 是一个函数，表明 parcel 还未加载，parcel 的状态为 LOADING_SOURCE_CODE;
+      // 如果 config 是一个对象，表明 parcel 已经加载， mount、unmount、update 已经获取， parcel 的状态为 NOT_BOOTSTRAPPED
+      status: passedConfigLoadingFunction ? LOADING_SOURCE_CODE : NOT_BOOTSTRAPPED, 
+      // 自定义属性
       customProps: customProps,
+      // 父应用(parcel 的名称)
       parentName: toName(owningAppOrParcel),
+      // 卸载 parcel 的方法
       unmountThisParcel: function unmountThisParcel() {
         if (parcel.status !== MOUNTED) {
           throw Error(formatErrorMessage(6,  "Cannot unmount parcel '".concat(name, "' -- it is in a ").concat(parcel.status, " status"), name, parcel.status));
         }
-
+        // 删除当前 parcel
         return toUnmountPromise(parcel, true).then(function (value) {
+          // 从父对象的 parcels 中删除当前 parcel
           if (parcel.parentName) {
             delete owningAppOrParcel.parcels[parcel.id];
           }
@@ -514,19 +525,20 @@
     }; // We return an external representation
 
     var externalRepresentation; // Add to owning app or parcel
-
+    // 
     owningAppOrParcel.parcels[id] = parcel;
+    // 创建一个 promise 对象，用来加载 parcel
     var loadPromise = configLoadingFunction();
 
     if (!loadPromise || typeof loadPromise.then !== "function") {
       throw Error(formatErrorMessage(7,  "When mounting a parcel, the config loading function must return a promise that resolves with the parcel config"));
     }
-
+    // 创建一个微任务，来加载 parcel
     loadPromise = loadPromise.then(function (config) {
       if (!config) {
         throw Error(formatErrorMessage(8,  "When mounting a parcel, the config loading function returned a promise that did not resolve with a parcel config"));
       }
-
+      // parcel 的 name
       var name = config.name || "parcel-".concat(id);
 
       if ( // ES Module objects don't have the object prototype
@@ -545,10 +557,13 @@
       if (config.update && !validLifecycleFn(config.update)) {
         throw Error(formatErrorMessage(12,  "Parcel ".concat(name, " provided an invalid update function"), name));
       }
-
+      // 获取 parcel 的 bootstrap
       var bootstrap = flattenFnArray(config, "bootstrap");
+      // 获取 parel 的 mount
       var mount = flattenFnArray(config, "mount");
+      // 获取 parcel 的 unmount
       var unmount = flattenFnArray(config, "unmount");
+      // parcel 的状态变为待启动
       parcel.status = NOT_BOOTSTRAPPED;
       parcel.name = name;
       parcel.bootstrap = bootstrap;
@@ -566,19 +581,23 @@
       }
     }); // Start bootstrapping and mounting
     // The .then() causes the work to be put on the event loop instead of happening immediately
-
+    // 创建一个微任务，来启动 parcel
     var bootstrapPromise = loadPromise.then(function () {
       return toBootstrapPromise(parcel, true);
     });
+    // 创建一个微任务，来挂载 parcel
     var mountPromise = bootstrapPromise.then(function () {
       return toMountPromise(parcel, true);
     });
     var resolveUnmount, rejectUnmount;
+
     var unmountPromise = new Promise(function (resolve, reject) {
       resolveUnmount = resolve;
       rejectUnmount = reject;
     });
+    // 
     externalRepresentation = {
+      // ？？ 有什么用
       mount: function mount() {
         return promiseWithoutReturnValue(Promise.resolve().then(function () {
           if (parcel.status !== NOT_MOUNTED) {
@@ -590,6 +609,7 @@
           return toMountPromise(parcel);
         }));
       },
+      // 供外部使用，手动卸载 parcel
       unmount: function unmount() {
         return promiseWithoutReturnValue(parcel.unmountThisParcel());
       },
@@ -603,48 +623,53 @@
     };
     return externalRepresentation;
   }
-
+  // 返回一个 promise 对象，这个 promise 对象的状态变为终态时，值为 null
   function promiseWithoutReturnValue(promise) {
     return promise.then(function () {
       return null;
     });
   }
-  
+  // 获取 props，传递给子应用或者 parcel
   function getProps(appOrParcel) {
+    // 子应用(parcel) 的名称
     var name = toName(appOrParcel);
+    // 自定义属性
     var customProps = typeof appOrParcel.customProps === "function" ? appOrParcel.customProps(name, window.location) : appOrParcel.customProps;
 
     if (_typeof(customProps) !== "object" || customProps === null || Array.isArray(customProps)) {
       customProps = {};
       console.warn(formatErrorMessage(40,  "single-spa: ".concat(name, "'s customProps function must return an object. Received ").concat(customProps)), name, customProps);
     }
-
+    // 将 mountParcel、singleSpa 传递给子应用(parcel)
     var result = assign({}, customProps, {
       name: name,
-      mountParcel: mountParcel.bind(appOrParcel), // 将 this 指向子应用实例
+      mountParcel: mountParcel.bind(appOrParcel),
       singleSpa: singleSpa
     });
-
+    // 如果是 parcel， 还要将卸载方法传递给子应用(parcel)
     if (isParcel(appOrParcel)) {
       result.unmountSelf = appOrParcel.unmountThisParcel;
     }
 
     return result;
   }
-
+  // 默认的警告时间 - 1s
   var defaultWarningMillis = 1000;
   // 超时配置
   var globalTimeoutConfig = {
+    // 启动的超时时间
     bootstrap: {
       millis: 4000,
       dieOnTimeout: false,
       warningMillis: defaultWarningMillis
     },
+    // 挂载的超时时间
     mount: {
       millis: 3000,
       dieOnTimeout: false,
       warningMillis: defaultWarningMillis
     },
+    // 卸载的超时时间
     unmount: {
       millis: 3000,
       dieOnTimeout: false,
@@ -709,7 +734,7 @@
       warningMillis: warningMillis || defaultWarningMillis
     };
   }
-  // 执行子应用提供的生命周期方法：bootstrap、 mount、unmount、update、unload 等
+  // 执行子应用(parcel)提供的生命周期方法：bootstrap、 mount、unmount、update、unload 等
   function reasonableTime(appOrParcel, lifecycle) {
     var timeoutConfig = appOrParcel.timeouts[lifecycle];
     var warningPeriod = timeoutConfig.warningMillis;
@@ -770,7 +795,6 @@
   }
   // 基于 promise 去记载子应用
   function toLoadPromise(app) {
-    debugger
     // 创建一个子任务，去加载子应用 
     return Promise.resolve().then(function () {
       // 如果子任务已经在加载了，停止二次加载
@@ -786,7 +810,6 @@
       var appOpts, isUserErr;
       // 创建一个微任务，去加载子应用的 js 代码
       return app.loadPromise = Promise.resolve().then(function () {
-        debugger
         // loadPromise 是一个 promise 实例，状态变为 resolved 时，意味着子应用的 js 代码执行完毕
         var loadPromise = app.loadApp(getProps(app));
 
@@ -948,13 +971,13 @@
       }
     }
   }
-  // 
+  // 是否只通过 url 来控制子应用的切换？？
   var urlRerouteOnly;
   // 
   function setUrlRerouteOnly(val) {
     urlRerouteOnly = val;
   }
-  // 
+  // url 变化来切换子应用？？
   function urlReroute() {
     reroute([], arguments);
   }
@@ -964,7 +987,7 @@
       var urlBefore = window.location.href;
       var result = updateState.apply(this, arguments);
       var urlAfter = window.location.href;
-
+      // 防止重复挂载
       if (!urlRerouteOnly || urlBefore !== urlAfter) {
         window.dispatchEvent(createPopStateEvent(window.history.state, methodName));
       }
@@ -1032,9 +1055,9 @@
 
       return originalRemoveEventListener.apply(this, arguments);
     };
-    // 给原生的 window.history.pushState 方法打补丁，调用 pushState 方法时， 触发自定义操作
+    // 给原生的 window.history.pushState 方法打补丁
     window.history.pushState = patchedUpdateState(window.history.pushState, "pushState");
-    // 给原生的 window.history.replaceState 方法打补丁，调用 replaceState 方式时， 触发自定义操作
+    // 给原生的 window.history.replaceState 方法打补丁，
     window.history.replaceState = patchedUpdateState(window.history.replaceState, "replaceState");
 
     if (window.singleSpaNavigate) {
@@ -1206,7 +1229,7 @@
       switch (app.status) {
         case LOAD_ERROR: // 加载失败
           if (appShouldBeActive && currentTime - app.loadErrorTime >= 200) {
-            appsToLoad.push(app);
+            appsToLoad.push(app); // 重新加载
           }
 
           break;
@@ -1257,7 +1280,7 @@
   function getRawAppData() {
     return [].concat(apps);
   }
-  // 获取应用的状态
+  // 获取子应用(parcel)的状态
   function getAppStatus(appName) {
     var app = find(apps, function (app) {
       return toName(app) === appName;
@@ -1273,7 +1296,9 @@
     // 将应用添加到 apps 中
     apps.push(assign({
       loadErrorTime: null,
+      // 子应用的状态
       status: NOT_LOADED,  // 应用的默认状态都是 NOT_LOADED
+      // 用来收集子应用内部的 parcels
       parcels: {},
       devtools: {
         overlays: {
@@ -1286,7 +1311,7 @@
     if (isInBrowser) {
       // ？？
       ensureJQuerySupport();
-      // ??
+      // 注册完成以后，立即根据当前路由去加载子应用
       reroute();
     }
   }
@@ -1554,10 +1579,9 @@
       return performAppChanges(); // 卸载前一个子应用，挂载下一个子应用
     } else { // 主应用未启动
       appsThatChanged = appsToLoad;
-      // 如果此时有需要激活的子应用，要创建一个微任务去加载子应用
       return loadApps(); // 加载注册的子应用
     }
-
+    // ??
     function cancelNavigation() {
       navigationIsCanceled = true;
     }
@@ -1565,7 +1589,7 @@
     function loadApps() {
       // 创建一个子任务，去加载要激活的子应用
       return Promise.resolve().then(function () {
-        // 执行子任务，根据要加载的子应用，创建多个微任务
+        // 执行子任务，根据要加载的子应用，创建多个子任务
         var loadPromises = appsToLoad.map(toLoadPromise);
         // 等 loadPromises 涉及的所有子任务都执行完毕以后，再创建一个子任务，执行 callAllEventListeners
         return Promise.all(loadPromises).then(callAllEventListeners) // there are no mounted apps, before start() is called, so we always return []
@@ -1644,7 +1668,7 @@
         });
       });
     }
-    // ??
+    // 子应用挂载结束
     function finishUpAndReturn() {
       var returnValue = getMountedApps();
       pendingPromises.forEach(function (promise) {
